@@ -31,20 +31,34 @@ namespace main_proc_server
 
         static public void Write(string input)
         {
-            RichTextBox.Invoke((MethodInvoker)(() =>
-            {
-                RichTextBox.AppendText($"{DateTime.Now.ToLocalTime()} <=> {input}");
-                RichTextBox.ScrollToCaret();
-            }));
+            if (RichTextBox.IsHandleCreated)
+                if (RichTextBox.InvokeRequired)
+                    RichTextBox.Invoke((MethodInvoker)(() =>
+                    {
+                        RichTextBox.AppendText($"{DateTime.Now.ToLocalTime()} <=> {input}");
+                        RichTextBox.ScrollToCaret();
+                    }));
+                else
+                {
+                    RichTextBox.AppendText($"{DateTime.Now.ToLocalTime()} <=> {input}");
+                    RichTextBox.ScrollToCaret();
+                }
         }
 
         static public void WriteLine(string input)
         {
-            RichTextBox.Invoke((MethodInvoker)(() =>
-            {
-                RichTextBox.AppendText($"\r\n{DateTime.Now.ToLocalTime()} <=> {input}");
-                RichTextBox.ScrollToCaret();
-            }));
+            if (RichTextBox.IsHandleCreated)
+                if (RichTextBox.InvokeRequired)
+                    RichTextBox.Invoke((MethodInvoker)(() =>
+                    {
+                        RichTextBox.AppendText($"\r\n{DateTime.Now.ToLocalTime()} <=> {input}");
+                        RichTextBox.ScrollToCaret();
+                    }));
+                else
+                {
+                    RichTextBox.AppendText($"\r\n{DateTime.Now.ToLocalTime()} <=> {input}");
+                    RichTextBox.ScrollToCaret();
+                }
         }
 
         static public void WriteMutexed(string input)

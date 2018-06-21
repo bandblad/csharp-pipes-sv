@@ -1,9 +1,11 @@
 ﻿using System;
-using System.IO.Pipes;
-using System.Threading;
-using System.Windows.Forms;
-using System.Text;
 using System.IO;
+using System.IO.Pipes;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
 
 namespace main_proc_server
 {
@@ -19,32 +21,81 @@ namespace main_proc_server
             return UnicodeBytesToString(Bytes, Bytes.Length);
         }
 
-        private Mutex TextOutputMutex;
-
-        private Semaphore NamedPipeHandlerSemaphore;
-        private const int NamedPipeHandlerSemaphoreMax = 3;
-
         public MainForm()
         {
             InitializeComponent();
-            LoggerSingletone.Begin(rtbLogWindow);
 
             FormClosing += MainForm_FormClosing;
+            bAddClient.Click += BAddClient_Click;
+            rtbLogWindow.HandleCreated += BeginMainTask;
+        }
+
+        private const string confName = ".config";
+        private int confValue = 5;
+
+        private void StartApplication(string appName, int appCount = 1)
+        {
+            try
+            {
+                while (appCount-- > 0)
+                    System.Diagnostics.Process.Start(appName);
+            }
+            catch (Exception)
+            {
+                MessageBox.Show(
+                            $"Failed to open application '{appName}'.",
+                            "Error",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Error,
+                            MessageBoxDefaultButton.Button1
+                            );
+            }
+        }
+
+        private void BeginMainTask(object sender, EventArgs e)
+        {
+            LoggerSingletone.Begin(rtbLogWindow);
 
             /* CONFIG BEGIN */
+            if (File.Exists(confName))
+                using (var fileStream = File.OpenRead(confName))
+                using (var streamReader = new StreamReader(fileStream))
+                {
+                    var fileContents = streamReader.ReadToEnd();
+                    if (Regex.IsMatch(fileContents, "[1-9]\\d*"))
+                        confValue = int.Parse(fileContents);
+                    else
+                        MessageBox.Show(
+                            $"Wrong format of config file '{confName}'." +
+                            $"\nDefault value will be used: {confValue}.", 
+                            "Error", 
+                            MessageBoxButtons.OK, 
+                            MessageBoxIcon.Error, 
+                            MessageBoxDefaultButton.Button1
+                            );
 
+                    streamReader.Close();
+                    fileStream.Close();
+                }
+            else
+                using (var fileStream = File.Create(confName))
+                using (var streamWriter = new StreamWriter(fileStream))
+                {
+                    streamWriter.Write(confValue);
 
-
+                    streamWriter.Close();
+                    fileStream.Close();
+                }
             /* CONFIG END */
 
-            TextOutputMutex = new Mutex();
-            NamedPipeHandlerSemaphore = new Semaphore(
-                NamedPipeHandlerSemaphoreMax, 
-                NamedPipeHandlerSemaphoreMax
-                );
+            // Add number of clients
+            StartApplication("main-proc-client.exe", confValue);
 
             var ThreadMainBody = new Thread(() =>
             {
+                var NPipeSemaphoreMax = 3;
+                var NPipeSemaphore = new Semaphore(NPipeSemaphoreMax, NPipeSemaphoreMax);
+
                 var NpName = "foo";
                 var NpDir = PipeDirection.In;
                 var NpMax = NamedPipeServerStream.MaxAllowedServerInstances;
@@ -54,7 +105,7 @@ namespace main_proc_server
                 for (; ; )
                 {
                     LoggerSingletone.WriteLineMutexed("Waiting for semaphore to signal;");
-                    NamedPipeHandlerSemaphore.WaitOne();
+                    NPipeSemaphore.WaitOne();
 
                     LoggerSingletone.WriteLineMutexed("Creating named pipe;");
                     var NamedPipe = new NamedPipeServerStream(NpName, NpDir, NpMax, NpTransmission, NpOpt);
@@ -75,14 +126,14 @@ namespace main_proc_server
                             BytesCount = NamedPipe.Read(Buf, 0, BufCount);
                             if (BytesCount > 0)
                             {
-                                var ClMessage = UnicodeBytesToString(Buf, BufCount);
+                                var ClMessage = UnicodeBytesToString(Buf, BytesCount);
                                 LoggerSingletone.WriteLineMutexed($"Client in thread #{ThreadID}: {ClMessage};");
                             }
                         }
 
                         NamedPipe.Disconnect();
                         NamedPipe.Close();
-                        NamedPipeHandlerSemaphore.Release();
+                        NPipeSemaphore.Release();
 
                         LoggerSingletone.WriteLineMutexed($"Worker thread #{ThreadID} terminated;");
                     });
@@ -93,7 +144,12 @@ namespace main_proc_server
             ThreadMainBody.IsBackground = true;
             ThreadMainBody.Start();
         }
-        
+
+        private async void BAddClient_Click(object sender, EventArgs e)
+        {
+            await Task.Run(() => StartApplication("main-proc-client.exe"));
+        }
+
         private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
         {
             bool Reason = e.CloseReason == CloseReason.UserClosing;
